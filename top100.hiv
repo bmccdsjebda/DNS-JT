@@ -1,0 +1,28 @@
+set mapreduce.job.queuename=hive;
+set hive.vectorized.execution.enabled=true;
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.mapjoin.smalltable.filesize=50000000;
+set hive.exec.reducers.max=200;
+set hive.exec.reducers.bytes.per.reducer=256000000;
+
+with allcnt as (select appname,sum(cnt) as appcnt from dns2.cmdnsdataappresult where loaddate=${hiveconf:datestr} group by appname)
+select t1.appname,t1.provnm,t2.appcnt,t1.cntall,t1.wwcnt,t1.bwcnt,t1.hostnum from
+(select b.appname as appname,
+a.prov_nm as provnm,
+sum(b.cnt) as cntall,
+sum(if((b.oprrslabel not in ("中国移动","中国铁通")),b.cnt,0)) as wwcnt,
+sum(if((b.oprrslabel in ("中国移动","中国铁通")),b.cnt,0)) as bwcnt,
+count(distinct b.hostname) as hostnum
+from dns2.cmdnsdataappresult b
+join
+dns2.cmdnsconf_prov a
+on(a.prov_longcode=b.procode)
+where b.loaddate=${hiveconf:datestr} group by b.appname,a.prov_nm) t1
+join
+allcnt t2
+on(t1.appname=t2.appname)
+join
+dns2.cmdnsconf_top100 t3
+on(t3.appname=t2.appname);
+
