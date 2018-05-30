@@ -1,0 +1,21 @@
+set mapreduce.job.queuename=hive;
+set hive.vectorized.execution.enabled=true;
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.mapjoin.smalltable.filesize=50000000;
+set hive.exec.reducers.max=200;
+set hive.exec.reducers.bytes.per.reducer=256000000;
+
+select 
+b.procode,
+a.prov_nm,
+sum(b.cnt) as cntall,
+(sum(b.cnt)-sum(if((b.oprrslabel not in ("中国移动","中国铁通")),b.cnt,0))) as bwcnt,
+(sum(b.cnt)-sum(if((b.oprrslabel not in ("中国移动","中国铁通")),b.cnt,0)))/sum(b.cnt) as bwrate,
+sum(if(b.srciplabel="手机",b.cnt,0)) as phonecnt,
+sum(if((b.srciplabel="手机" and (b.oprrslabel in ("中国移动","中国铁通"))),b.cnt,0)) as phonebwcnt
+from dns2.cmdnsdataresult b
+join
+dns2.cmdnsconf_prov a
+on(a.prov_longcode=b.procode)
+where b.loaddate=${hiveconf:datestr} group by b.procode,a.prov_nm;

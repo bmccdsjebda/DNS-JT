@@ -1,0 +1,39 @@
+set mapreduce.job.queuename=hive;
+set hive.vectorized.execution.enabled=true;
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.mapjoin.smalltable.filesize=50000000;
+set hive.exec.reducers.max=200;
+set hive.exec.reducers.bytes.per.reducer=256000000;
+
+select a.prov_nm,a.hostname,a.appname,allcnt,wncnt,wwcnt,snidc,snzl,sncdn,sfcdn,zx,tt,wnqt,lt,dx,other
+from
+(select
+prov_nm,
+hostname,
+appname,
+sum(cnt) as allcnt,
+sum(if((oprrslabel in ("中国移动","中国铁通")),cnt,0)) as wncnt,
+sum(if((oprrslabel not in ("中国移动","中国铁通")),cnt,0)) as wwcnt,
+sum(if((oprrslabel="中国移动" and rsiplabel='第三方CDN'),cnt,0)) as sfcdn,
+sum(if((oprrslabel="中国移动" and rsiplabel='互联网专线'),cnt,0)) as zx,
+sum(if((oprrslabel="中国铁通"),cnt,0)) as tt,
+sum(if((oprrslabel in ("中国移动","中国铁通") and rsiplabel not in ("IDC","对等直连","互联网专线","自建Cache/CDN","第三方CDN")),cnt,0)) as wnqt,
+sum(if((oprrslabel="中国联通"),cnt,0)) as lt,
+sum(if((oprrslabel="中国电信"),cnt,0)) as dx,
+sum(if((oprrslabel not in ("中国移动","中国铁通","中国联通","中国电信")),cnt,0)) as other
+from
+dns2.cmdnsdataappresult
+join
+dns2.cmdnsconf_prov
+on(procode=prov_longcode)
+where loaddate=${hiveconf:datestr}
+group by prov_nm,hostname,appname
+grouping sets ((hostname,appname),(prov_nm,hostname,appname))
+order by prov_nm) a
+left join
+(select prov_nm,prorslabel as prov,hostname,appname,sum(if((oprrslabel in ("中国移动","中国铁通") and rsiplabel='IDC'),cnt,0)) as snidc,sum(if((oprrslabel in ("中国移动","中国铁通") and rsiplabel='对等直连'),cnt,0)) as snzl,sum(if((oprrslabel in ("中国移动","中国铁通") and rsiplabel='自建Cache/CDN'),cnt,0)) as sncdn from dns2.cmdnsdataappresult join dns2.cmdnsconf_prov on(procode=prov_longcode) where loaddate=${hiveconf:datestr} group by prov_nm,prorslabel,hostname,appname) b
+on(a.prov_nm=b.prov_nm and a.prov_nm=b.prov and a.hostname=b.hostname and a.appname=b.appname)
+join
+dns2.cmdnsconf_top100 c
+on(a.appname=c.appname);

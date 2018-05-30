@@ -1,0 +1,79 @@
+﻿set mapreduce.job.queuename=hive;
+set hive.vectorized.execution.enabled=true;
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.mapjoin.smalltable.filesize=50000000;
+set hive.exec.reducers.max=200;
+set hive.exec.reducers.bytes.per.reducer=256000000;
+
+create temporary table idc as
+select d.prov_nm,a.hostname,sum(if((a.oprrslabel<>"中国移动"),a.cnt,0)) as wwcnt,sum(a.cnt) as allcnt from dns2.cmdnsdataappresult_p1 a join
+dns2.cmdnsconf_prov d on(a.procode=d.prov_longcode)
+join
+(select hostname from dns2.cmdnsdataresult_p1 where loaddate=${hiveconf:datestr} and rsiplabel='IDC' group by hostname) b
+on(a.hostname=b.hostname) join dns2.cmdnsconf_top100 c on(a.appname=c.appname) where a.loaddate=${hiveconf:datestr} group by d.prov_nm,a.hostname having sum(if((a.oprrslabel<>"中国移动"),a.cnt,0))>0;
+
+create temporary table zl as
+select d.prov_nm,a.hostname,sum(if((a.oprrslabel<>"中国移动"),a.cnt,0)) as wwcnt,sum(a.cnt) as allcnt from dns2.cmdnsdataappresult_p1 a join
+dns2.cmdnsconf_prov d on(a.procode=d.prov_longcode)
+join
+(select hostname from dns2.cmdnsdataresult_p1 where loaddate=${hiveconf:datestr} and rsiplabel='对等直连' group by hostname) b
+on(a.hostname=b.hostname) join dns2.cmdnsconf_top100 c on(a.appname=c.appname) where a.loaddate=${hiveconf:datestr} group by d.prov_nm,a.hostname having sum(if((a.oprrslabel<>"中国移动"),a.cnt,0))>0;
+
+create temporary table cdn as
+select d.prov_nm,a.hostname,sum(if((a.oprrslabel<>"中国移动"),a.cnt,0)) as wwcnt,sum(a.cnt) as allcnt from dns2.cmdnsdataappresult_p1 a join
+dns2.cmdnsconf_prov d on(a.procode=d.prov_longcode)
+join
+(select hostname from dns2.cmdnsdataresult_p1 where loaddate=${hiveconf:datestr} and rsiplabel='统建CDN' group by hostname) b
+on(a.hostname=b.hostname) join dns2.cmdnsconf_top100 c on(a.appname=c.appname) where a.loaddate=${hiveconf:datestr} group by d.prov_nm,a.hostname having sum(if((a.oprrslabel<>"中国移动"),a.cnt,0))>0;
+
+create temporary table idc_fs as
+select a.hostname,concat_ws(',',collect_set(a.prov_nm)) as idcprov,concat_ws(',',collect_set(c.rsip)) as idcip from
+(select prov_nm,hostname,sum(cnt) as allcnt from dns2.cmdnsdataresult_p1 a join dns2.cmdnsconf_prov b on(a.procode=b.prov_longcode) where loaddate=${hiveconf:datestr} group by prov_nm,hostname) a
+join
+(select prov_nm,prorslabel,hostname,sum(if((oprrslabel="中国移动" and rsiplabel="IDC"),cnt,0)) as idccnt from dns2.cmdnsdataresult_p1 a join dns2.cmdnsconf_prov b on(a.procode=b.prov_longcode) where loaddate=${hiveconf:datestr} group by prov_nm,prorslabel,hostname) b
+on (a.prov_nm=b.prov_nm and a.prov_nm=b.prorslabel and a.hostname=b.hostname)
+join
+(select prorslabel,hostname,rsip from dns2.cmdnsdataresult_p1 where loaddate=${hiveconf:datestr} and oprrslabel="中国移动" and rsiplabel="IDC" group by prorslabel,hostname,rsip) c
+on(a.prov_nm=c.prorslabel and a.hostname=c.hostname)
+where b.idccnt/a.allcnt>=0.05 group by a.hostname;
+
+create temporary table zl_fs as
+select a.hostname,concat_ws(',',collect_set(a.prov_nm)) as zlprov,concat_ws(',',collect_set(c.rsip)) as zlip from
+(select prov_nm,hostname,sum(cnt) as allcnt from dns2.cmdnsdataresult_p1 a join dns2.cmdnsconf_prov b on(a.procode=b.prov_longcode) where loaddate=${hiveconf:datestr} group by prov_nm,hostname) a
+join
+(select prov_nm,prorslabel,hostname,sum(if((oprrslabel="中国移动" and rsiplabel="对等直连"),cnt,0)) as zlcnt from dns2.cmdnsdataresult_p1 a join dns2.cmdnsconf_prov b on(a.procode=b.prov_longcode) where loaddate=${hiveconf:datestr} group by prov_nm,prorslabel,hostname) b
+on (a.prov_nm=b.prov_nm and a.prov_nm=b.prorslabel and a.hostname=b.hostname)
+join
+(select prorslabel,hostname,rsip from dns2.cmdnsdataresult_p1 where loaddate=${hiveconf:datestr} and oprrslabel="中国移动" and rsiplabel="对等直连" group by prorslabel,hostname,rsip) c
+on(a.prov_nm=c.prorslabel and a.hostname=c.hostname)
+where b.zlcnt/a.allcnt>=0.05 group by a.hostname;
+
+create temporary table cdn_fs as
+select a.hostname,concat_ws(',',collect_set(a.prov_nm)) as cdnprov,concat_ws(',',collect_set(c.rsip)) as cdnip from
+(select prov_nm,hostname,sum(cnt) as allcnt from dns2.cmdnsdataresult_p1 a join dns2.cmdnsconf_prov b on(a.procode=b.prov_longcode) where loaddate=${hiveconf:datestr} group by prov_nm,hostname) a
+join
+(select prov_nm,prorslabel,hostname,sum(if((oprrslabel="中国移动" and rsiplabel="统建CDN"),cnt,0)) as cdncnt from dns2.cmdnsdataresult_p1 a join dns2.cmdnsconf_prov b on(a.procode=b.prov_longcode) where loaddate=${hiveconf:datestr} group by prov_nm,prorslabel,hostname) b
+on (a.prov_nm=b.prov_nm and a.prov_nm=b.prorslabel and a.hostname=b.hostname)
+join
+(select prorslabel,hostname,rsip from dns2.cmdnsdataresult_p1 where loaddate=${hiveconf:datestr} and oprrslabel="中国移动" and rsiplabel="统建CDN" group by prorslabel,hostname,rsip) c
+on(a.prov_nm=c.prorslabel and a.hostname=c.hostname)
+where b.cdncnt/a.allcnt>=0.05 group by a.hostname;
+
+select a.prov_nm,a.hostname,d.idcprov,d.idcip,b.hostname,e.zlprov,e.zlip,c.hostname,f.cdnprov,f.cdnip,coalesce(a.wwcnt,b.wwcnt,c.wwcnt),coalesce(a.allcnt,b.allcnt,c.allcnt)
+from idc a
+full join
+zl b
+on(a.prov_nm=b.prov_nm and a.hostname=b.hostname)
+full join
+cdn c
+on(a.prov_nm=c.prov_nm and a.hostname=c.hostname)
+left join
+idc_fs d
+on(a.hostname=d.hostname)
+left join
+zl_fs e
+on(b.hostname=e.hostname)
+left join
+cdn_fs f
+on(c.hostname=f.hostname);

@@ -1,0 +1,16 @@
+set mapreduce.job.queuename=hive;
+set hive.vectorized.execution.enabled=true;
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.mapjoin.smalltable.filesize=50000000;
+set hive.exec.reducers.max=200;
+set hive.exec.reducers.bytes.per.reducer=256000000;
+
+with applist as (select appname,hostname,sum(if((rsiplabel in ("IDC","对等直连","互联网专线") or oprrslabel="中国铁通"),cnt,0))/sum(cnt) as yinrurate from dns2.cmdnsdataappresult where loaddate=${hiveconf:datestr} group by appname,hostname)
+select t1.appname,t3.cnt,nvl(t3.bwl,0) as b,nvl(t3.icp,0) as i,var_pop(nvl(t2.prov_icp,0)) from dns2.cmdnsdataappresult t1
+left join
+(select a.appname,b.procode as procode,sum(if((b.rsiplabel in ("IDC","对等直连","互联网专线","第三方CDN") or b.oprrslabel="中国铁通"),b.cnt,0))/sum(b.cnt) as prov_icp from applist a left join dns2.cmdnsdataappresult b on(b.hostname=a.hostname) where b.loaddate=${hiveconf:datestr} and a.yinrurate>=0.05 group by a.appname,b.procode) t2 on (t1.appname=t2.appname)
+left join
+(select a.appname,sum(b.cnt) as cnt,1-(sum(if((b.oprrslabel not in ("中国移动","中国铁通")),b.cnt,0))/sum(b.cnt)) as bwl, sum(if((b.rsiplabel in ("IDC","对等直连","互联网专线","第三方CDN") or b.oprrslabel="中国铁通"),b.cnt,0))/sum(b.cnt) as icp from applist a left join dns2.cmdnsdataappresult b on(b.hostname=a.hostname) where b.loaddate=${hiveconf:datestr} and a.yinrurate>=0.05 group by a.appname) t3 
+on (t2.appname=t3.appname)
+where loaddate=${hiveconf:datestr} group by t1.appname,t3.cnt,t3.bwl,t3.icp;

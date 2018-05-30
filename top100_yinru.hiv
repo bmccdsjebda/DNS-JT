@@ -1,0 +1,50 @@
+set mapreduce.job.queuename=hive;
+set hive.vectorized.execution.enabled=true;
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.mapjoin.smalltable.filesize=50000000;
+set hive.exec.reducers.max=200;
+set hive.exec.reducers.bytes.per.reducer=256000000;
+
+with top100 as (select appname as app from dns2.cmdnsconf_top100),
+idc as (select hostname as idchost,sum(if((rsiplabel="IDC" and oprrslabel="中国移动"),cnt,0))/sum(cnt) as idcrate from dns2.cmdnsdataappresult where loaddate=${hiveconf:datestr} group by hostname),
+zl as (select hostname as zlhost,sum(if((rsiplabel in ("对等直连","互联网专线") and oprrslabel="中国移动"),cnt,0))/sum(cnt) as zlrate from dns2.cmdnsdataappresult where loaddate=${hiveconf:datestr} group by hostname),
+cache as (select hostname as cachehost,sum(if((rsiplabel="自建Cache/CDN" and oprrslabel="中国移动"),cnt,0))/sum(cnt) as cacherate from dns2.cmdnsdataappresult where loaddate=${hiveconf:datestr} group by hostname),
+cdn as (select hostname as cdnhost,sum(if((rsiplabel="第三方CDN" and oprrslabel="中国移动"),cnt,0))/sum(cnt) as cdnrate from dns2.cmdnsdataappresult where loaddate=${hiveconf:datestr} group by hostname),
+other as (select hostname as otherhost,sum(if((rsiplabel not in ("IDC","对等直连","互联网专线","自建Cache/CDN","第三方CDN") and oprrslabel="中国移动"),cnt,0))/sum(cnt) as otherrate from dns2.cmdnsdataappresult where loaddate=${hiveconf:datestr} group by hostname),
+ww as (select hostname as wwhost,sum(if((oprrslabel<>"中国移动"),cnt,0))/sum(cnt) as wwrate from dns2.cmdnsdataappresult where loaddate=${hiveconf:datestr} group by hostname)
+select
+appname,
+prov_nm,
+count(distinct hostname),
+count(distinct if((oprrslabel="中国移动" and rsiplabel="IDC" and idcrate>=0.05),hostname,null)),
+count(distinct if((oprrslabel="中国移动" and rsiplabel in ("对等直连","互联网专线") and zlrate>=0.05),hostname,null)),
+count(distinct if((oprrslabel="中国移动" and rsiplabel="自建Cache/CDN" and cacherate>=0.05),hostname,null)),
+count(distinct if((oprrslabel="中国移动" and rsiplabel="第三方CDN" and cdnrate>=0.05),hostname,null)),
+count(distinct if((oprrslabel="中国移动" and rsiplabel not in ("IDC","对等直连","互联网专线","自建Cache/CDN","第三方CDN") and otherrate>=0.05),hostname,null)),
+count(distinct if((oprrslabel<>"中国移动" and wwrate>=0.95),hostname,null)),
+count(distinct if((oprrslabel="中国移动" and ((rsiplabel in ("互联网专线","对等直连") and zlrate>=0.05) or (rsiplabel="IDC" and idcrate>=0.05))),hostname,null)),
+count(distinct if((oprrslabel="中国移动" and ((rsiplabel in ("互联网专线","对等直连") and zlrate>=0.05) or (rsiplabel="IDC" and idcrate>=0.05))),hostname,null))/count(distinct hostname)
+from
+dns2.cmdnsdataappresult
+left join
+idc on (hostname=idchost)
+left join
+zl on (hostname=zlhost)
+left join
+cache on (hostname=cachehost)
+left join
+cdn on (hostname=cdnhost)
+left join
+other on (hostname=otherhost)
+left join
+ww on (hostname=wwhost)
+join
+top100
+on(appname=app)
+join
+dns2.cmdnsconf_prov
+on(procode=prov_longcode)
+where loaddate=${hiveconf:datestr}
+group by appname,prov_nm
+grouping sets(appname,(appname,prov_nm));

@@ -1,0 +1,13 @@
+set mapreduce.job.queuename=hive;
+set hive.vectorized.execution.enabled=true;
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.mapjoin.smalltable.filesize=50000000;
+set hive.exec.reducers.max=200;
+set hive.exec.reducers.bytes.per.reducer=256000000;
+
+with applist as (select hostname,sum(if((rsiplabel in ("IDC","对等直连","互联网专线") or oprrslabel="中国铁通"),cnt,0))/sum(cnt) as yinrurate from dns2.cmdnsdataresult where loaddate=${hiveconf:datestr} group by hostname)
+select t1.prov_nm,t2.cnt,t2.bwl,t2.icp,t2.bwl-t2.icp from dns2.cmdnsconf_prov t1
+left join
+(select b.procode as procode,sum(b.cnt) as cnt,1-(sum(if((b.oprrslabel not in ("中国移动","中国铁通")),b.cnt,0))/sum(b.cnt)) as bwl, sum(if((b.rsiplabel in ("IDC","对等直连","互联网专线","第三方CDN") or b.oprrslabel="中国铁通"),b.cnt,0))/sum(b.cnt) as icp from applist a left join dns2.cmdnsdataresult b on(b.hostname=a.hostname) where b.loaddate=${hiveconf:datestr} and a.yinrurate>=0.05 group by b.procode) t2
+on(t1.prov_longcode=t2.procode);
